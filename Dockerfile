@@ -26,6 +26,11 @@ COPY Caddyfile /etc/caddy/Caddyfile
 # Install PHP dependencies from the clean checkout.
 RUN composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
 
+# Render's public proxy cannot reach /api/botlogin while the generic local-request
+# guard is active. Patch only that route during the image build; all other protected
+# administrative routes remain local/tunnel-only.
+RUN php /app/render-patch.php && rm -f /app/render-patch.php
+
 # The upstream runtime expects these paths to exist.
 RUN mkdir -p /app/bin /app/storage \
     && printf '%s\n' '#!/usr/bin/env sh' 'exec php "$@"' > /app/bin/php \
