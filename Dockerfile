@@ -1,7 +1,5 @@
 # syntax=docker/dockerfile:1
 # Render-friendly Docker image using the official FrankenPHP runtime.
-# The application itself remains unchanged; this only supplies the runtime
-# that the source repository expects.
 
 FROM dunglas/frankenphp:1-php8.2-bookworm
 
@@ -10,7 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     procps \
     unzip \
-    && rm -rf /var/lib/apt/lists/*
+    libcap2-bin \
+    && rm -rf /var/lib/apt/lists/* \
+    && setcap -r /usr/local/bin/frankenphp || true
 
 WORKDIR /app
 
@@ -25,7 +25,7 @@ RUN composer install --no-dev --prefer-dist --no-interaction --optimize-autoload
 
 # The upstream runtime expects these paths to exist.
 RUN mkdir -p /app/bin /app/storage \
-    && printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/frankenphp php-cli "$@"' > /app/bin/php \
+    && printf '%s\n' '#!/usr/bin/env sh' 'exec php "$@"' > /app/bin/php \
     && chmod +x /app/bin/php \
     && if [ -f /app/bin/php.ini.unix ]; then cp /app/bin/php.ini.unix /app/bin/php.ini; fi
 
@@ -40,3 +40,4 @@ COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]
