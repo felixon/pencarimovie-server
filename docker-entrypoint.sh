@@ -5,6 +5,11 @@ mkdir -p /app/storage
 
 PORT="${PORT:-8088}"
 
+# Render terminates TLS at its edge and forwards plain HTTP to the container.
+# Tell FrankenPHP/Caddy to listen on Render's assigned HTTP port and do not
+# enable automatic HTTPS inside the container.
+export SERVER_NAME="http://:${PORT}"
+
 # Pre-spawn MadelineProto IPC workers
 (
     sleep 2
@@ -27,7 +32,5 @@ PHP
 
 echo "[Docker] Starting PencariMovie Server with FrankenPHP on 0.0.0.0:${PORT}..."
 
-# The official FrankenPHP image expects the command to be supplied to the
-# container entrypoint. Keep that standard startup path so Render can execute
-# the binary without the direct-exec capability issue.
+# Use the standard FrankenPHP image startup command supplied by Docker.
 exec "$@"
