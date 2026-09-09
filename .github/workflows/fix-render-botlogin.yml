@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - master
 
 permissions:
   contents: write
@@ -13,75 +12,76 @@ jobs:
   patch-backend:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Patch Render bot login guard
+      - name: Patch backend.php
+        shell: bash
         run: |
-          python3 - <<'PY'
+          python3 <<'PY'
           from pathlib import Path
 
-          p = Path('backend.php')
-          s = p.read_text(encoding='utf-8')
+          path = Path("backend.php")
+          text = path.read_text(encoding="utf-8")
 
-          marker = "function fd_is_cloudflare_tunnel_request(): bool\n"
-          render_fn = '''function fd_is_render_request(): bool
+          if "function fd_is_render_request(): bool" not in text:
+              marker = "function fd_is_cloudflare_tunnel_request(): bool"
+              pos = text.find(marker)
+              if pos < 0:
+                  raise SystemExit("Cloudflare function marker not found")
+              render_fn = '''function fd_is_render_request(): bool
           {
-              // Render sets RENDER=true on deployed services.
               return strtolower((string) ($_ENV['RENDER'] ?? $_SERVER['RENDER'] ?? '')) === 'true'
                   || strtolower((string) ($_ENV['RENDER_SERVICE_ID'] ?? '')) !== '';
           }
 
           '''
+              text = text[:pos] + render_fn + text[pos:]
 
-          if 'function fd_is_render_request(): bool' not in s:
-              if marker not in s:
-                  raise SystemExit('Could not find Cloudflare tunnel function marker')
-              s = s.replace(marker, render_fn + marker, 1)
-
-          old = '''    if (!in_array($path, $alwaysPublicApi, true)) {
-          $allowViaTunnel = fd_is_cloudflare_tunnel_request() && in_array($path, $tunnelReadableApi, true);
-          if (!$allowViaTunnel) {
-              fd_require_local_request();
+          old = """    if (!in_array($path, $alwaysPublicApi, true)) {
+              $allowViaTunnel = fd_is_cloudflare_tunnel_request() && in_array($path, $tunnelReadableApi, true);
+              if (!$allowViaTunnel) {
+                  fd_require_local_request();
+              }
           }
-      }
-          '''
+          """
 
-          new = '''    if (!in_array($path, $alwaysPublicApi, true)) {
-          $allowViaTunnel =
-              fd_is_cloudflare_tunnel_request()
-              && in_array($path, $tunnelReadableApi, true);
+          new = """    if (!in_array($path, $alwaysPublicApi, true)) {
+              $allowViaTunnel =
+                  fd_is_cloudflare_tunnel_request()
+                  && in_array($path, $tunnelReadableApi, true);
 
-          // Render-hosted dashboard authentication must be reachable
-          // through the public Render URL. Keep all other protected
-          // administrative endpoints local/tunnel-only.
-          $allowRenderBotLogin =
-              fd_is_render_request()
-              && $path === '/api/botlogin'
-              && $method === 'POST';
+              // Render-hosted dashboard authentication must be reachable
+              // through the public Render URL. Keep all other protected
+              // administrative endpoints local/tunnel-only.
+              $allowRenderBotLogin =
+                  fd_is_render_request()
+                  && $path === '/api/botlogin'
+                  && $method === 'POST';
 
-          if (!$allowViaTunnel && !$allowRenderBotLogin) {
-              fd_require_local_request();
+              if (!$allowViaTunnel && !$allowRenderBotLogin) {
+                  fd_require_local_request();
+              }
           }
-      }
-          '''
+          """
 
-          if old not in s:
-              raise SystemExit('Could not find API request guard block')
+          if old not in text:
+              raise SystemExit("API guard block not found")
 
-          s = s.replace(old, new, 1)
-          p.write_text(s, encoding='utf-8')
-          print('backend.php patched successfully')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding="utf-8")
+          print("backend.php patched")
           PY
 
-      - name: Commit backend patch
+      - name: Commit patch
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add backend.php
           if git diff --cached --quiet; then
-            echo "No changes to commit"
+            echo "No backend changes"
           else
             git commit -m "Allow bot login on Render"
-            git push
+            git push origin HEAD:main
           fi
