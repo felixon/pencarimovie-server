@@ -5,7 +5,7 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    healthCheckPath: /healthz
+    healthCheckPath: /healthz.php
     disk:
       name: pencarimovie-storage
       mountPath: /app/storage
