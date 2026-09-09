@@ -20,6 +20,9 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 # Copy the source checkout. storage is intentionally mounted separately by Render.
 COPY . /app/
 
+# Replace the default FrankenPHP Caddyfile with the project's Render-aware config.
+COPY Caddyfile /etc/caddy/Caddyfile
+
 # Install PHP dependencies from the clean checkout.
 RUN composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
 
