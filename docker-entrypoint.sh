@@ -25,6 +25,7 @@ header('Cache-Control: no-store');
 echo "ok\n";
 PHP
 
-# Start FrankenPHP. Render supplies PORT; local installations keep 8088.
+# The FrankenPHP image provides the executable at /usr/local/bin/frankenphp.
+# Render supplies PORT; local installations keep 8088.
 echo "[Docker] Starting PencariMovie Server with FrankenPHP on 0.0.0.0:${PORT}..."
-exec /app/bin/frankenphp php-server --listen "0.0.0.0:${PORT}" --root /app
+exec /usr/local/bin/frankenphp php-server --listen "0.0.0.0:${PORT}" --root /app
