@@ -1,5 +1,4 @@
-{ # FrankenPHP uses Caddy under the hood. # This Caddyfile is based on the official FrankenPHP template.
-
+{
     skip_install_trust
 
     {$CADDY_GLOBAL_OPTIONS}
@@ -7,14 +6,15 @@
     frankenphp {
         {$FRANKENPHP_CONFIG}
     }
-
 }
 
 {$CADDY_EXTRA_CONFIG}
 
-# Render supplies PORT (normally 10000). Fall back to 8088 for local use.
-:{$PORT:8088} {
-    root * .
+# Render's entrypoint sets SERVER_NAME to http://:<PORT>.
+# Using the SERVER_NAME variable follows the official FrankenPHP Docker
+# configuration and disables automatic HTTPS for Render's internal HTTP port.
+{$SERVER_NAME:localhost} {
+    root * /app
     encode zstd br gzip
 
     php_server {
