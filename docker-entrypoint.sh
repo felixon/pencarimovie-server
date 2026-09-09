@@ -25,7 +25,9 @@ header('Cache-Control: no-store');
 echo "ok\n";
 PHP
 
-# The FrankenPHP image provides the executable at /usr/local/bin/frankenphp.
-# Render supplies PORT; local installations keep 8088.
 echo "[Docker] Starting PencariMovie Server with FrankenPHP on 0.0.0.0:${PORT}..."
-exec /usr/local/bin/frankenphp php-server --listen "0.0.0.0:${PORT}" --root /app
+
+# The official FrankenPHP image expects the command to be supplied to the
+# container entrypoint. Keep that standard startup path so Render can execute
+# the binary without the direct-exec capability issue.
+exec "$@"
