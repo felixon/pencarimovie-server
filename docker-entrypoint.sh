@@ -3,7 +3,9 @@ set -e
 
 mkdir -p /app/storage
 
-# 1. Pre-spawn MadelineProto IPC workers
+PORT="${PORT:-8088}"
+
+# Pre-spawn MadelineProto IPC workers
 (
     sleep 2
     echo "[Docker] Warming up IPC workers..."
@@ -14,6 +16,15 @@ mkdir -p /app/storage
     fi
 ) &
 
-# 3. Start FrankenPHP server
-echo "[Docker] Starting PencariMovie Server with FrankenPHP on 0.0.0.0:8088..."
-exec /app/bin/frankenphp php-server --listen 0.0.0.0:8088 --root /app
+# Lightweight health endpoint used by Render.
+cat > /app/healthz.php <<'PHP'
+<?php
+http_response_code(200);
+header('Content-Type: text/plain; charset=utf-8');
+header('Cache-Control: no-store');
+echo "ok\n";
+PHP
+
+# Start FrankenPHP. Render supplies PORT; local installations keep 8088.
+echo "[Docker] Starting PencariMovie Server with FrankenPHP on 0.0.0.0:${PORT}..."
+exec /app/bin/frankenphp php-server --listen "0.0.0.0:${PORT}" --root /app
