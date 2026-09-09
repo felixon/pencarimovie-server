@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: pencarimovie-server
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    disk:
+      name: pencarimovie-storage
+      mountPath: /app/storage
+      sizeGB: 1
