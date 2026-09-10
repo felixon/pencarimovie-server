@@ -183,8 +183,54 @@ if (!str_contains($text, $newPublicResolve)) {
     }
 }
 
+// The standalone server is not loaded inside WordPress, so this WordPress
+// helper may not exist. Keep the existing country-header behavior without
+// taking a dependency on WordPress functions.
+$oldSanitize = "sanitize_text_field(\$_SERVER['HTTP_CF_IPCOUNTRY'])";
+$newSanitize = "preg_replace('/[^A-Za-z0-9_-]/', '', (string) \$_SERVER['HTTP_CF_IPCOUNTRY'])";
+if (str_contains($text, $oldSanitize)) {
+    $text = str_replace($oldSanitize, $newSanitize, $text, $count);
+    if ($count !== 1) {
+        throw new RuntimeException("Expected one sanitize_text_field call, found {$count}");
+    }
+}
+
+// Fix route initialization order. /configure checks $addonPath before it is
+// normalized, which produces a warning on the standalone FrankenPHP server.
+$oldAddonOrder = <<<'PHP'
+    // Handle Stremio's standard /configure route -> redirects directly to dashboard with #configure
+    if ($path === '/configure' || $path === '/configure/' || $addonPath === '/configure' || $addonPath === '/configure/') {
+        header('Location: /#configure', true, 302);
+        exit;
+    }
+
+    // Normalize path by stripping /nuvio or /stremio prefix if present so internal matching is uniform
+    $addonPath = preg_replace('#^/(nuvio|stremio)#', '', $path);
+PHP;
+
+$newAddonOrder = <<<'PHP'
+    // Normalize path by stripping /nuvio or /stremio prefix if present so internal matching is uniform
+    $addonPath = preg_replace('#^/(nuvio|stremio)#', '', $path);
+    if ($addonPath === '') {
+        $addonPath = '/';
+    }
+
+    // Handle Stremio's standard /configure route -> redirects directly to dashboard with #configure
+    if ($path === '/configure' || $path === '/configure/' || $addonPath === '/configure' || $addonPath === '/configure/') {
+        header('Location: /#configure', true, 302);
+        exit;
+    }
+PHP;
+
+if (str_contains($text, $oldAddonOrder)) {
+    $text = str_replace($oldAddonOrder, $newAddonOrder, $text, $count);
+    if ($count !== 1) {
+        throw new RuntimeException("Expected one addon path block, found {$count}");
+    }
+}
+
 if (file_put_contents($path, $text) === false) {
     throw new RuntimeException('Unable to write patched backend.php');
 }
 
-echo "Render bot-login and shortcode-resolution patches applied successfully\n";
+echo "Render bot-login, shortcode-resolution, and standalone compatibility patches applied successfully\n";
