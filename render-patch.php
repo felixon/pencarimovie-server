@@ -28,6 +28,96 @@ PHP;
     $text = substr($text, 0, $pos) . $renderFn . substr($text, $pos);
 }
 
+// Render-safe shortcode resolution helper. The normal resolver races all bots
+// through curl_multi. That is useful locally, but on Render the sequential HTTP
+// path is more reliable and gives the WordPress/Telegram relay enough time to
+// finish resolving the file.
+if (!str_contains($text, 'function fd_resolve_shortcode_render_safe(string $shortCode')) {
+    $marker = 'function fd_resolve_shortcode_concurrent(string $shortCode, array $candidateBots = []): array';
+    $pos = strpos($text, $marker);
+    if ($pos === false) {
+        throw new RuntimeException('Shortcode concurrent resolver marker not found');
+    }
+
+    $renderResolver = <<<'PHP'
+function fd_resolve_shortcode_render_safe(string $shortCode, array $candidateBots = []): array
+{
+    $shortCode = trim($shortCode);
+    if ($shortCode === '') {
+        return ['ok' => 0, 'message' => 'short_code is required.'];
+    }
+
+    if ($candidateBots === []) {
+        $activeBotId = trim((string) fd_get_bot_id());
+        if ($activeBotId !== '') {
+            $candidateBots[] = $activeBotId;
+        }
+
+        foreach (fd_get_bot_pool() as $poolBot) {
+            $poolId = trim((string) ($poolBot['bot_id'] ?? ''));
+            if ($poolId !== '' && !in_array($poolId, $candidateBots, true)) {
+                $candidateBots[] = $poolId;
+            }
+        }
+    }
+
+    $candidateBots = array_values(array_unique(array_filter(array_map('strval', $candidateBots))));
+    if ($candidateBots === []) {
+        return ['ok' => 0, 'message' => 'No active bots available for resolution.'];
+    }
+
+    $lastError = null;
+    foreach ($candidateBots as $botId) {
+        $cached = fd_resolve_shortcode_cached($shortCode, $botId);
+        if ($cached !== null) {
+            if (empty($cached['bot_id'])) {
+                $cached['bot_id'] = $botId;
+            }
+            return $cached;
+        }
+
+        $url = FD_WP_API_BASE . '/resolve-file';
+        $params = [
+            'short_code' => $shortCode,
+            'bot_id' => $botId,
+        ];
+
+        // Render needs more time than the normal 5-second resolver because
+        // WordPress may need to ask Telegram for the file before responding.
+        $result = fd_http_json($url, $params, 'GET', 20);
+
+        if (!empty($result['file_id_mt']) || !empty($result['file_id'])) {
+            $result['ok'] = 1;
+            if (empty($result['bot_id'])) {
+                $result['bot_id'] = $botId;
+            }
+            fd_save_resolve_cache($shortCode, $botId, $result);
+            fd_log('render-safe shortcode resolved', [
+                'short_code' => $shortCode,
+                'bot_id' => $botId,
+            ]);
+            return $result;
+        }
+
+        $lastError = is_array($result) ? $result : ['ok' => 0, 'message' => 'Invalid resolver response.'];
+        fd_log('render-safe shortcode attempt failed', [
+            'short_code' => $shortCode,
+            'bot_id' => $botId,
+            'message' => (string) ($lastError['message'] ?? 'Unknown resolver error'),
+        ]);
+    }
+
+    return $lastError ?: [
+        'ok' => 0,
+        'message' => 'Failed to resolve short code across all available bots.',
+    ];
+}
+
+PHP;
+
+    $text = substr($text, 0, $pos) . $renderResolver . substr($text, $pos);
+}
+
 $old = <<<'PHP'
     if (!in_array($path, $alwaysPublicApi, true)) {
         $allowViaTunnel = fd_is_cloudflare_tunnel_request() && in_array($path, $tunnelReadableApi, true);
@@ -67,8 +157,34 @@ if (!str_contains($text, $new)) {
     }
 }
 
+// The public Render file-detail resolver should avoid curl_multi. Keep the
+// normal concurrent resolver unchanged for local installs and downloads.
+$oldPublicResolve = <<<'PHP'
+        // Use concurrent multi-bot resolution across all pool bots for instantaneous resolution
+        // Pass empty candidate bots so it queries all pool bots + active bot simultaneously
+        $result = fd_resolve_shortcode_concurrent($shortCode);
+PHP;
+
+$newPublicResolve = <<<'PHP'
+        // Render uses a sequential resolver with a longer upstream timeout;
+        // local installations keep the normal concurrent resolver.
+        $result = fd_is_render_request()
+            ? fd_resolve_shortcode_render_safe($shortCode)
+            : fd_resolve_shortcode_concurrent($shortCode);
+PHP;
+
+if (!str_contains($text, $newPublicResolve)) {
+    if (!str_contains($text, $oldPublicResolve)) {
+        throw new RuntimeException('Public shortcode resolver call block not found');
+    }
+    $text = str_replace($oldPublicResolve, $newPublicResolve, $text, $count);
+    if ($count !== 1) {
+        throw new RuntimeException("Expected one public resolver call block, found {$count}");
+    }
+}
+
 if (file_put_contents($path, $text) === false) {
     throw new RuntimeException('Unable to write patched backend.php');
 }
 
-echo "Render bot-login patch applied successfully\n";
+echo "Render bot-login and shortcode-resolution patches applied successfully\n";
